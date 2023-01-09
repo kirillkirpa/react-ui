@@ -621,8 +621,7 @@ export const Table: React.FC<TableProps> = ({
       row.groupRows?.some((rowId) => rowToGroupMap[rowId].checked) &&
       row.groupRows?.some((rowId) => !rowToGroupMap[rowId].checked);
 
-    const hasGroupRows = row.groupRows?.length;
-    const checked = hasGroupRows ? row.groupRows?.every((rowId) => rowToGroupMap[rowId].checked) : row.selected;
+    const checked = row.groupRows?.length ? row.groupRows.every((rowId) => rowToGroupMap[rowId].checked) : row.selected;
 
     return (
       <GroupRow
