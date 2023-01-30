@@ -234,6 +234,7 @@ export interface TableProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 type GroupInfo = {
+  id: string;
   rows: Array<string>;
   expanded: boolean;
 };
@@ -296,9 +297,11 @@ export const Table: React.FC<TableProps> = ({
   const expandCellRef = React.useRef<HTMLDivElement>(null);
   const checkboxCellRef = React.useRef<HTMLDivElement>(null);
 
+  /** Информация о группе, ее детях и expanded */
   const groupToRowsMap = rowList.reduce<Group>((acc: Group, row) => {
     if (typeof row.groupRows !== 'undefined') {
       acc[row.id] = {
+        id: row.id,
         rows: [...row.groupRows],
         expanded: !!row.expanded,
       };
@@ -306,32 +309,38 @@ export const Table: React.FC<TableProps> = ({
     return acc;
   }, {});
 
+  /** Информация о строке, которая входит в группу, ее checked  */
   const rowToGroupMap = Object.entries(groupToRowsMap).reduce<GroupRows>((acc, [groupId, info]) => {
     info.rows.forEach((id) => {
       const row = rowList.find((item) => item.id.toString() === id);
-      if (row && !groupToRowsMap[id]) {
+      if (row) {
         acc[id] = { groupId, checked: !!row.selected };
       }
     });
     return acc;
   }, {});
 
+  /** Располагает детей в группе */
   const reorderRowsToGroup = () => {
     const tableRows: Array<TableRow> = [];
-    rowList.forEach((row) => {
-      const isGroupRow = !!groupToRowsMap[row.id];
-      const rowInGroup = !!rowToGroupMap[row.id];
-      if (!rowInGroup) {
-        tableRows.push(row);
-      }
 
-      if (isGroupRow) {
-        groupToRowsMap[row.id].rows.forEach((rowId) => {
-          const row = rowList.find((item) => item.id.toString() === rowId);
-          if (row) tableRows.push(row);
-        });
-      }
-    });
+    const reorder = (children: TableRow[]) => {
+      children.forEach((child) => {
+        tableRows.push(child);
+        const childIsGroup = groupToRowsMap[child.id];
+        if (childIsGroup) {
+          const children: TableRow[] = [];
+          childIsGroup.rows.forEach((rowId) => {
+            const row = rowList.find((item) => item.id.toString() === rowId);
+            if (row) children.push(row);
+          });
+          reorder(children);
+        }
+      });
+    };
+
+    const rootRows = rowList.filter((row) => !rowToGroupMap[row.id]);
+    reorder(rootRows);
 
     return tableRows;
   };
@@ -486,50 +495,109 @@ export const Table: React.FC<TableProps> = ({
     setBodyHeight,
   ]);
 
-  const calcGroupCheckStatus = (groupInfo: GroupInfo) => {
-    const indeterminate =
-      groupInfo.rows.some((rowId) => rowToGroupMap[rowId].checked) &&
-      groupInfo.rows.some((rowId) => !rowToGroupMap[rowId].checked);
-    const checked = groupInfo.rows.every((rowId) => rowToGroupMap[rowId].checked);
+  const checkRowIsGroup = (rowId: string) => !!groupToRowsMap[rowId];
+
+  /** Проверяет имеется ли отметка внутри группы */
+  const checkGroupIsIndeterminate = (groupInfo: GroupInfo, excludeId?: string) => {
+    const groupRows = excludeId === undefined ? groupInfo.rows : groupInfo.rows.filter((rowId) => rowId !== excludeId);
+    const hasChecked = groupRows.some((rowId) => rowToGroupMap[rowId]?.checked);
+    const hasUnchecked = groupRows.some((rowId) => !rowToGroupMap[rowId]?.checked);
+    const hasChildIndeterminate = groupRows.some(
+      (rowId) => checkRowIsGroup(rowId) && checkGroupIsIndeterminate(groupToRowsMap[rowId], excludeId),
+    );
+
+    const indeterminate = (hasChecked && hasUnchecked) || hasChildIndeterminate;
+    return indeterminate;
+  };
+
+  /** Проверяет все ли отмечено внутри группы */
+  const checkGroupIsChecked = (groupInfo: GroupInfo, excludeId?: string): boolean => {
+    const groupRows = excludeId === undefined ? groupInfo.rows : groupInfo.rows.filter((rowId) => rowId !== excludeId);
+    if (!groupRows.length) {
+      return false;
+    }
+    const checked: boolean = groupRows.every((rowId) => {
+      const checked = rowToGroupMap[rowId]?.checked;
+      const groupChecked = checkRowIsGroup(rowId) && checkGroupIsChecked(groupToRowsMap[rowId], excludeId);
+      return checked || groupChecked;
+    });
+    return checked;
+  };
+
+  /** Информация по статусу checked и indeterminate (выделено не все) */
+  const calcGroupCheckStatus = (groupInfo: GroupInfo, excludeId?: string) => {
+    const indeterminate = checkGroupIsIndeterminate(groupInfo, excludeId);
+    const checked = checkGroupIsChecked(groupInfo, excludeId);
     return { checked, indeterminate };
   };
 
-  const parentGroupWillBeChecked = (changedDepId: RowId) => {
-    const groupId = rowToGroupMap[changedDepId]?.groupId;
-    const groupInfo = groupId ? groupToRowsMap[groupId] : undefined;
+  const parentGroupWillBeChecked = (changedDepId: RowId, parentCandidateId: RowId) => {
+    let groupId = rowToGroupMap[changedDepId]?.groupId;
+    let groupInfo = groupId ? groupToRowsMap[groupId] : undefined;
+
+    while (groupId && groupInfo?.id !== parentCandidateId) {
+      groupId = rowToGroupMap[groupId]?.groupId;
+      groupInfo = groupId ? groupToRowsMap[groupId] : undefined;
+    }
 
     if (!groupInfo) return;
 
-    const value = groupInfo?.rows.some((rowId) =>
-      rowId === changedDepId.toString() ? !rowToGroupMap[rowId].checked : rowToGroupMap[rowId].checked,
-    );
-    return { groupId, value };
+    const checkedDep = !rowToGroupMap[changedDepId]?.checked;
+    const checked = checkedDep && checkGroupIsChecked(groupInfo, changedDepId.toString());
+    return { groupId, value: checked };
+  };
+
+  const getChildrenGroupIds = (groupInfo: GroupInfo): string[] => {
+    const childrenGroups: string[] = [];
+    groupInfo.rows.forEach((rowId) => {
+      const rowGroupInfo = groupToRowsMap[rowId];
+      if (rowGroupInfo) {
+        childrenGroups.push(rowId);
+        childrenGroups.push(...getChildrenGroupIds(rowGroupInfo));
+      }
+    });
+    return childrenGroups;
   };
 
   function handleCheckboxChange(id: RowId) {
-    const groupInfo = groupToRowsMap[id];
-    const rowHasGroup = rowToGroupMap[id];
-
-    const groupCheckStatus = groupInfo && calcGroupCheckStatus(groupInfo);
-    const parentGroupNewValue = rowHasGroup && parentGroupWillBeChecked(id);
+    /** Если есть, то выбранная строка является группой */
+    const currentGroupInfo = groupToRowsMap[id];
+    /** Если есть, то у выбранной строки есть группа */
+    const currentRowHasGroup = rowToGroupMap[id];
+    /** Дочерние группы у выбранной строки */
+    const currentChilldrenGroups = currentGroupInfo ? getChildrenGroupIds(currentGroupInfo) : undefined;
 
     const idsMap = rowList.reduce((ids: IdSelectionStatusMap, row) => {
-      if (groupInfo) {
-        const rowInCurrentGroup = groupInfo.rows.includes(row.id.toString());
+      const rowId = row.id.toString();
+      const rowIsCurrent = row.id === id;
+      const rowHasGroup = rowToGroupMap[rowId];
 
-        if (row.id === id || rowInCurrentGroup) {
-          ids[row.id] = !(groupCheckStatus?.indeterminate || groupCheckStatus?.checked);
-        } else {
-          ids[row.id] = row.id === id ? !row.selected : !!row.selected;
-        }
+      if (rowIsCurrent) {
+        const isIndeterminate = currentGroupInfo && checkGroupIsIndeterminate(currentGroupInfo);
+        ids[rowId] = isIndeterminate ? !isIndeterminate : !row.selected;
       } else {
-        ids[row.id] = row.id === id ? !row.selected : !!row.selected;
-        if (rowHasGroup && row.id === parentGroupNewValue?.groupId) {
-          ids[row.id] = parentGroupNewValue?.value;
+        ids[rowId] = !!row.selected;
+
+        if (currentGroupInfo && rowHasGroup) {
+          const rowInCurrentGroup = rowHasGroup.groupId === currentGroupInfo.id;
+          const rowInCurrentChildrenGroups = rowHasGroup && currentChilldrenGroups?.includes(rowHasGroup.groupId);
+
+          if (rowInCurrentGroup || rowInCurrentChildrenGroups) {
+            const groupCheckStatus = calcGroupCheckStatus(currentGroupInfo);
+            ids[rowId] = !(groupCheckStatus?.indeterminate || groupCheckStatus?.checked);
+          }
+        }
+
+        if (currentRowHasGroup) {
+          const parentGroupNewValue = parentGroupWillBeChecked(id, row.id);
+          if (parentGroupNewValue) {
+            ids[rowId] = parentGroupNewValue.value;
+          }
         }
       }
       return ids;
     }, {});
+
     onRowSelectionChange?.(idsMap, id);
   }
 
@@ -617,12 +685,9 @@ export const Table: React.FC<TableProps> = ({
   };
 
   const renderGroupRow = (row: TableRow) => {
-    const indeterminate =
-      row.groupRows?.some((rowId) => rowToGroupMap[rowId].checked) &&
-      row.groupRows?.some((rowId) => !rowToGroupMap[rowId].checked);
     const hasGroupRows = !!row.groupRows?.length;
-    const isEveryGroupRowsSelected = row.groupRows?.every((rowId) => rowToGroupMap[rowId].checked);
-    const checked = hasGroupRows ? isEveryGroupRowsSelected : row.selected;
+    const defaultStatus = { indeterminate: false, checked: row.selected };
+    const { indeterminate, checked } = hasGroupRows ? calcGroupCheckStatus(groupToRowsMap[row.id]) : defaultStatus;
 
     return (
       <GroupRow
@@ -674,10 +739,18 @@ export const Table: React.FC<TableProps> = ({
   const renderRow = (row: TableRow, index: number) => {
     const isGroupRow = !!groupToRowsMap[row.id];
     const rowInGroup = !!rowToGroupMap[row.id];
-    const visible = rowInGroup ? groupToRowsMap[rowToGroupMap[row.id].groupId].expanded : true;
+    const isRootGroupRow = isGroupRow && !rowInGroup;
+    let visible = true;
+    if (rowInGroup) {
+      let group = groupToRowsMap[rowToGroupMap[row.id].groupId];
+      while (visible && group) {
+        visible = group.expanded;
+        group = groupToRowsMap[rowToGroupMap[group.id]?.groupId];
+      }
+    }
     const isLastRow = isLastVisibleRow({ row, isGroupRow, tableRows, index });
 
-    const node = (isGroupRow || visible) && (
+    const node = (isRootGroupRow || visible) && (
       <RowWrapper
         dimension={dimension}
         row={row}
