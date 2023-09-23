@@ -1,7 +1,9 @@
 import type { HTMLAttributes } from 'react';
-import React, { forwardRef, useEffect, useMemo, useState } from 'react';
+import React, { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dimension, TreeItemProps } from './TreeNode';
 import styled from 'styled-components';
+import { refSetter } from '../common/utils/refSetter';
+import observeRect from '../common/observeRect';
 
 export interface TreeProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> {
   /** Размер компонента */
@@ -24,7 +26,25 @@ export interface TreeProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onChang
   withCheckbox?: boolean;
   /** Ширина строк дерева */
   width?: number;
+  /** Включение виртуального скролла для тела. */
+  virtualScroll?: {
+    /** Фиксированная высота строки, для правильного функционирования виртуального скролла
+     * все строки должны быть одной фиксированной высоты
+     */
+    fixedRowHeight: number;
+    /** Количество отрендеренных элементов за пределами видимой части */
+    renderAhread: number;
+  };
 }
+
+const Spacer = styled.div`
+  display: flex;
+  flex: 0 0 auto;
+`;
+
+const VirtualWrapper = styled.div`
+  overflow: overlay;
+`;
 
 const Wrapper = styled.div<{ $width?: number }>`
   display: flex;
@@ -74,6 +94,7 @@ export const Tree = forwardRef<HTMLDivElement, TreeProps>(
       onActivateItem,
       onSelectItem,
       onChange,
+      virtualScroll,
       ...props
     },
     ref,
@@ -81,6 +102,22 @@ export const Tree = forwardRef<HTMLDivElement, TreeProps>(
     const [internalModel, setInternalModel] = useState<Array<TreeItemProps>>([...model]);
     const [selectedState, setSelectedState] = useState<string | undefined>(defaultSelected);
     const [activeState, setActiveState] = useState<string | undefined>(undefined);
+    const [height, setHeight] = React.useState(0);
+    const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+    React.useEffect(() => {
+      const scrollContainer = scrollContainerRef.current as Element;
+      if (virtualScroll && scrollContainer) {
+        const observer = new ResizeObserver((entities) => {
+          for (const entity of entities) {
+            setHeight((state) => state || entity.contentRect.height);
+          }
+        });
+        observer.observe(scrollContainer);
+        return () => {
+          observer.disconnect();
+        };
+      }
+    }, [virtualScroll]);
 
     const selectedId = selected === undefined ? selectedState : selected;
     const activeId = active === undefined ? activeState : active;
@@ -149,8 +186,8 @@ export const Tree = forwardRef<HTMLDivElement, TreeProps>(
       }
     };
 
-    const renderChildren = (items: Array<TreeItemProps>): React.ReactNode => {
-      return items.map((item) => {
+    const renderChildren = (items: Array<TreeItemProps>): React.ReactNode[] => {
+      return items.flatMap((item) => {
         const node = map[item.id];
         const hasChildren = !!item.children;
         const indeterminate =
@@ -159,8 +196,9 @@ export const Tree = forwardRef<HTMLDivElement, TreeProps>(
         const checked = hasChildren
           ? node.dependencies?.every((depId: number | string) => map[depId].node.checked)
           : !!item.checked;
+        const children = item.children && item.expanded ? renderChildren(item.children) : [];
 
-        return (
+        return [
           <React.Fragment key={item.id}>
             {item.render({
               checked,
@@ -179,9 +217,9 @@ export const Tree = forwardRef<HTMLDivElement, TreeProps>(
               onClickItem: () => selectItem(item.id),
               onToggleExpand: () => toggleExpand(item.id),
             })}
-            {item.children && item.expanded && renderChildren(item.children)}
-          </React.Fragment>
-        );
+          </React.Fragment>,
+          ...children,
+        ];
       });
     };
 
@@ -189,12 +227,70 @@ export const Tree = forwardRef<HTMLDivElement, TreeProps>(
       setActiveState(undefined);
     };
 
+    const children = React.useMemo(() => renderChildren(model) as React.ReactNode[], [model]);
+
     return (
-      <Wrapper ref={ref} $width={width} onMouseLeave={handleMouseLeave} {...props}>
-        {renderChildren(model)}
+      <Wrapper ref={refSetter(ref, scrollContainerRef)} $width={width} onMouseLeave={handleMouseLeave} {...props}>
+        {virtualScroll ? (
+          <VirtualBody
+            children={children}
+            height={height}
+            renderAhread={virtualScroll.renderAhread}
+            fixedRowHeight={virtualScroll.fixedRowHeight}
+          />
+        ) : (
+          children
+        )}
       </Wrapper>
     );
   },
 );
+
+interface VirtualBodyProps {
+  children: React.ReactNode[];
+  height: number;
+  renderAhread: number;
+  fixedRowHeight: number;
+}
+
+function VirtualBody(props: VirtualBodyProps) {
+  const { children, height, renderAhread, fixedRowHeight } = props;
+  const [scrollTop, setScrollTop] = useState(0);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const handleScroll = (e: any) => {
+    requestAnimationFrame(() => {
+      setScrollTop(e.target.scrollTop);
+    });
+  };
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current as Element;
+    if (scrollContainer) {
+      setScrollTop(scrollContainer?.scrollTop || 0);
+      scrollContainer?.addEventListener('scroll', handleScroll);
+      return () => {
+        scrollContainer?.removeEventListener('scroll', handleScroll);
+      };
+    }
+  }, []);
+
+  const itemCount = children.length;
+  let startNode = Math.floor(scrollTop / fixedRowHeight) - renderAhread;
+  startNode = Math.max(0, startNode);
+  let visibleNodeCount = Math.ceil(height / fixedRowHeight) + 2 * renderAhread;
+  visibleNodeCount = Math.min(itemCount - startNode, visibleNodeCount);
+  const visibleChildren = useMemo(() => {
+    return [...children].slice(startNode, startNode + visibleNodeCount);
+  }, [children, startNode, visibleNodeCount]);
+
+  const topPadding = `${startNode * fixedRowHeight}px`;
+  const bottomPadding = `${(itemCount - startNode - visibleNodeCount) * fixedRowHeight}px`;
+  return (
+    <VirtualWrapper style={{ height }} ref={scrollContainerRef}>
+      <Spacer style={{ minHeight: topPadding }} />
+      {visibleChildren}
+      <Spacer style={{ minHeight: bottomPadding }} />
+    </VirtualWrapper>
+  );
+}
 
 export { TreeNode } from './TreeNode';
