@@ -60,7 +60,7 @@ export const GroupRow = ({
       {displayRowSelectionColumn && (
         <CheckboxCell dimension={dimension} className="td_checkbox">
           <Checkbox
-            disabled={row.disabled || row.checkboxDisabled || row.groupRows?.length === 0}
+            disabled={row.disabled || row.checkboxDisabled}
             dimension={checkboxDimension}
             checked={!!checked}
             indeterminate={indeterminate}
