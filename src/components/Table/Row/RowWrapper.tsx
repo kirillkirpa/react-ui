@@ -1,5 +1,5 @@
 import * as React from 'react';
-import type { HTMLAttributes } from 'react';
+import type { HTMLAttributes, MouseEvent } from 'react';
 import { ExpandedRow, ExpandedRowContent, Row, SimpleRow } from '#src/components/Table/style';
 import type { Dimension, RowId, TableRow } from '#src/components/Table';
 import { OverflowMenu } from '#src/components/Table/OverflowMenu';
@@ -10,7 +10,7 @@ export interface RowWrapperProps extends HTMLAttributes<HTMLDivElement> {
   /** Отображаемая строка */
   row: TableRow;
   /** Колбек для клика по строке таблицы */
-  onRowClick?: (rowId: RowId) => void;
+  onRowClick?: (rowId: RowId, event: MouseEvent<HTMLElement>) => void;
   /** Колбек для двойного клика по строке таблицы */
   onRowDoubleClick?: (rowId: RowId) => void;
   /** Ширина таблицы */
@@ -44,8 +44,8 @@ export const RowWrapper = ({
   grey,
   ...props
 }: RowWrapperProps) => {
-  const handleRowClick = (rowId: RowId) => {
-    onRowClick?.(rowId);
+  const handleRowClick = (rowId: RowId, event: MouseEvent<HTMLElement>) => {
+    onRowClick?.(rowId, event);
   };
 
   const handleRowDoubleClick = (rowId: RowId) => {
@@ -55,7 +55,8 @@ export const RowWrapper = ({
   return (
     <Row
       {...props}
-      onClick={() => handleRowClick(row.id)}
+      onClick={(event) => handleRowClick(row.id, event)}
+      onAuxClick={(event) => handleRowClick(row.id, event)}
       onDoubleClick={() => handleRowDoubleClick(row.id)}
       underline={underline}
       disabled={!!row.disabled}

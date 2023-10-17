@@ -166,7 +166,7 @@ export interface TableProps extends React.HTMLAttributes<HTMLDivElement> {
    */
   onRowExpansionChange?: (idSelectionStatusMap: IdSelectionStatusMap) => void;
   /** Колбек для клика по строке таблицы */
-  onRowClick?: (rowId: RowId) => void;
+  onRowClick?: (rowId: RowId, event: React.MouseEvent<HTMLElement>) => void;
   /** Колбек для двойного клика по строке таблицы */
   onRowDoubleClick?: (rowId: RowId) => void;
   /** Размер таблицы */
