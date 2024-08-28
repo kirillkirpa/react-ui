@@ -201,6 +201,14 @@ export interface TableProps extends React.HTMLAttributes<HTMLDivElement> {
    * Входные параметры - объект строки, её порядковый номер и элемент который должен быть отрисован внутри создаваемой обертки
    * */
   renderRowWrapper?: (row: TableRow, index: number, rowNode: React.ReactNode) => React.ReactNode;
+  /** Рендер функция для отрисовки обертки вокруг шапки таблицы.
+   * Входные параметры - элемент который должен быть отрисован внутри создаваемой обертки
+   * */
+  renderHeaderWrapper?: (headerNode: React.ReactNode) => React.ReactNode;
+  /** Рендер функция для отрисовки обертки вокруг ячейки шапки таблицы.
+   * Входные параметры - название столбца и элемент который должен быть отрисован внутри создаваемой обертки
+   * */
+  renderHeaderCellWrapper?: (columnName: string, cellNode: React.ReactNode) => React.ReactNode;
   /** Параметр, определяющий максимальное количество строк, которое может занимать заголовок столбца таблицы.
    * По умолчанию заголовок занимает не более одной строки
    */
@@ -265,6 +273,8 @@ export const Table: React.FC<TableProps> = ({
   onColumnResize,
   renderCell,
   renderRowWrapper,
+  renderHeaderWrapper,
+  renderHeaderCellWrapper,
   dimension = 'm',
   greyHeader = false,
   greyZebraRows = false,
@@ -645,25 +655,28 @@ export const Table: React.FC<TableProps> = ({
     return columnList.filter((col) => !!col.sort).length > 1;
   }, [columnList]);
 
-  const renderHeaderCell = (column: ColumnWithResizerWidth, index: number) => (
-    <HeaderCellComponent
-      key={`head_${column.name}`}
-      column={column}
-      index={index}
-      columnsAmount={cols.length}
-      showDividerForLastColumn={showDividerForLastColumn}
-      disableColumnResize={disableColumnResize}
-      headerLineClamp={headerLineClamp}
-      headerExtraLineClamp={headerExtraLineClamp}
-      resizerState={resizerState}
-      handleResizeChange={handleResizeChange}
-      handleSort={handleSort}
-      dimension={dimension}
-      spacingBetweenItems={spacingBetweenItems}
-      multipleSort={multipleSort}
-      columnMinWidth={columnMinWidth}
-    />
-  );
+  const renderHeaderCell = (column: ColumnWithResizerWidth, index: number) => {
+    const node = (
+      <HeaderCellComponent
+        key={`head_${column.name}`}
+        column={column}
+        index={index}
+        columnsAmount={cols.length}
+        showDividerForLastColumn={showDividerForLastColumn}
+        disableColumnResize={disableColumnResize}
+        headerLineClamp={headerLineClamp}
+        headerExtraLineClamp={headerExtraLineClamp}
+        resizerState={resizerState}
+        handleResizeChange={handleResizeChange}
+        handleSort={handleSort}
+        dimension={dimension}
+        spacingBetweenItems={spacingBetweenItems}
+        multipleSort={multipleSort}
+        columnMinWidth={columnMinWidth}
+      />
+    );
+    return renderHeaderCellWrapper?.(column.name, node) ?? node;
+  };
 
   const renderBodyCell = (row: TableRow, col: Column) => {
     return (
@@ -804,32 +817,36 @@ export const Table: React.FC<TableProps> = ({
     );
   };
 
+  const headerNode = (
+    <HeaderWrapper scrollbar={scrollbar} greyHeader={greyHeader} data-verticalscroll={verticalScroll}>
+      <Header dimension={dimension} ref={headerRef} className="tr">
+        {(displayRowSelectionColumn || displayRowExpansionColumn || stickyColumns.length > 0) && (
+          <StickyWrapper greyHeader={greyHeader}>
+            {displayRowExpansionColumn && <ExpandCell ref={expandCellRef} dimension={dimension} />}
+            {displayRowSelectionColumn && (
+              <CheckboxCell ref={checkboxCellRef} dimension={dimension} className="th_checkbox">
+                <Checkbox
+                  dimension={checkboxDimension}
+                  checked={allRowsChecked || someRowsChecked || headerCheckboxChecked}
+                  indeterminate={(someRowsChecked && !allRowsChecked) || headerCheckboxIndeterminate}
+                  disabled={tableRows.length === 0 || headerCheckboxDisabled}
+                  onChange={handleHeaderCheckboxChange}
+                />
+              </CheckboxCell>
+            )}
+            {stickyColumns.length > 0 &&
+              stickyColumns.map((col, index) => renderHeaderCell(col as ColumnWithResizerWidth, index))}
+          </StickyWrapper>
+        )}
+        {cols.map((col, index) => (col.sticky ? null : renderHeaderCell(col as ColumnWithResizerWidth, index)))}
+        <Filler />
+      </Header>
+    </HeaderWrapper>
+  );
+
   return (
     <TableContainer ref={tableRef} data-shadow={false} {...props} className={`table ${props.className || ''}`}>
-      <HeaderWrapper scrollbar={scrollbar} greyHeader={greyHeader} data-verticalscroll={verticalScroll}>
-        <Header dimension={dimension} ref={headerRef} className="tr">
-          {(displayRowSelectionColumn || displayRowExpansionColumn || stickyColumns.length > 0) && (
-            <StickyWrapper greyHeader={greyHeader}>
-              {displayRowExpansionColumn && <ExpandCell ref={expandCellRef} dimension={dimension} />}
-              {displayRowSelectionColumn && (
-                <CheckboxCell ref={checkboxCellRef} dimension={dimension} className="th_checkbox">
-                  <Checkbox
-                    dimension={checkboxDimension}
-                    checked={allRowsChecked || someRowsChecked || headerCheckboxChecked}
-                    indeterminate={(someRowsChecked && !allRowsChecked) || headerCheckboxIndeterminate}
-                    disabled={tableRows.length === 0 || headerCheckboxDisabled}
-                    onChange={handleHeaderCheckboxChange}
-                  />
-                </CheckboxCell>
-              )}
-              {stickyColumns.length > 0 &&
-                stickyColumns.map((col, index) => renderHeaderCell(col as ColumnWithResizerWidth, index))}
-            </StickyWrapper>
-          )}
-          {cols.map((col, index) => (col.sticky ? null : renderHeaderCell(col as ColumnWithResizerWidth, index)))}
-          <Filler />
-        </Header>
-      </HeaderWrapper>
+      {renderHeaderWrapper?.(headerNode) ?? headerNode}
       {renderBody()}
     </TableContainer>
   );
