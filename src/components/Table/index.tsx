@@ -818,10 +818,10 @@ export const Table: React.FC<TableProps> = ({
   };
 
   const headerNode = (
-    <HeaderWrapper scrollbar={scrollbar} greyHeader={greyHeader} data-verticalscroll={verticalScroll}>
+    <HeaderWrapper scrollbar={scrollbar} greyHeader={greyHeader} data-verticalscroll={verticalScroll} className='header-wrapper'>
       <Header dimension={dimension} ref={headerRef} className="tr">
         {(displayRowSelectionColumn || displayRowExpansionColumn || stickyColumns.length > 0) && (
-          <StickyWrapper greyHeader={greyHeader}>
+          <StickyWrapper greyHeader={greyHeader} className='sticky-wrapper'>
             {displayRowExpansionColumn && <ExpandCell ref={expandCellRef} dimension={dimension} />}
             {displayRowSelectionColumn && (
               <CheckboxCell ref={checkboxCellRef} dimension={dimension} className="th_checkbox">
